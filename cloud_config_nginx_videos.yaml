@@ -1,0 +1,31 @@
+ #cloud-config
+ write_files:
+   -   path: /etc/nginx/sites-available/default
+       owner: root:root
+       permissions: "0644"
+       content: |
+          server {
+          	listen 80 default_server;
+          	listen [::]:80 default_server;
+
+          	root /var/www/html;
+
+          	index index.html index.htm index.nginx-debian.html;
+
+          	server_name _;
+
+          	location / {
+          		try_files $uri $uri/ =404;
+          	}
+
+            location /videos/ {
+                alias /usr/share/nginx/html/videos/;
+            }
+
+          }
+ runcmd:
+   - mkdir -p /usr/share/nginx/html/videos/
+   - echo "asg responsible for /videos" > /usr/share/nginx/html/videos/index.html
+   - sudo systemctl --now enable nginx
+ packages:
+   - nginx

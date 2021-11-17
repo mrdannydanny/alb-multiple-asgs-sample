@@ -98,6 +98,23 @@ resource "aws_launch_configuration" "launch_configuration_default" {
               EOF
 }
 
+### template file to setup nginx on the launch configuration for /videos
+data "template_file" "script" {
+  template = "${file("${path.module}/cloud_config_nginx_videos.yaml")}"
+}
+
+data "template_cloudinit_config" "config" {
+   gzip          = true
+   base64_encode = true
+
+   part {
+     filename     = "default"
+     content_type = "text/cloud-config"
+     content      = "${data.template_file.script.rendered}"
+   }   
+ }
+
+### launch config that will spin up ec2 instances replying to /videos/ 
 resource "aws_launch_configuration" "launch_configuration_videos" {
   name_prefix   = "launch_configuration_videos"
   image_id      = data.aws_ami.ubuntu.id
@@ -108,19 +125,7 @@ resource "aws_launch_configuration" "launch_configuration_videos" {
   }
 
   security_groups = [aws_security_group.launch_config_security_group.id]
-
-  user_data = <<-EOF
-              #!/bin/bash
-              sudo apt-get install nginx -y              
-              sudo systemctl --now enable nginx
-              mkdir -p /usr/share/nginx/html/videos/
-              echo "asg responsible for /videos" > /usr/share/nginx/html/videos/index.html
-
-              #adding a alias to the video directory        
-              #location /videos/ {
-              #    alias /usr/share/nginx/html/videos/;
-              #}
-              EOF
+  user_data     = data.template_cloudinit_config.config.rendered # nginx installation and adding a location block for /videos/
 }
 
 resource "aws_autoscaling_group" "asg-default" {
@@ -143,10 +148,10 @@ resource "aws_autoscaling_group" "asg-default" {
 
 resource "aws_autoscaling_group" "asg-videos" {
   name                 = "asg-videos"
-  launch_configuration = aws_launch_configuration.launch_configuration_videos.id
-  min_size             = 1
-  max_size             = 2
-  desired_capacity     = 2
+  launch_configuration = aws_launch_configuration.launch_configuration_videos.id # specifying the launch config that has the /videos/ available
+  min_size             = 3
+  max_size             = 4
+  desired_capacity     = 4
 
   vpc_zone_identifier = [for s in data.aws_subnet.example : s.id]
   target_group_arns   = [aws_lb_target_group.target_group_videos.arn] # all ec2 instances spinned up by this asg will be associated with the target group
@@ -194,6 +199,7 @@ resource "aws_lb_listener" "alb_listener" {
   }
 }
 
+### rule that will forward traffic to the target_group_videos/asg-videos
 resource "aws_lb_listener_rule" "videos_rule" {
   listener_arn = aws_lb_listener.alb_listener.arn
   priority     = 100
